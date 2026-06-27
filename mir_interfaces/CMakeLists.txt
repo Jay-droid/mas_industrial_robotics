@@ -13,6 +13,8 @@ find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+find_package(unique_identifier_msgs REQUIRED)
+find_package(action_msgs REQUIRED)
 
 set(manipulation_msg_files
   "mir_manipulation/msg/GripperCommand.msg"
@@ -39,7 +41,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   ${perception_msg_files}
   "mir_perception/action/ObjectDetection.action"
   "mir_world_model/action/ObjectSelector.action"
-  DEPENDENCIES builtin_interfaces std_msgs geometry_msgs sensor_msgs
+  DEPENDENCIES builtin_interfaces std_msgs geometry_msgs sensor_msgs unique_identifier_msgs action_msgs
 )
 
 if(BUILD_TESTING)
