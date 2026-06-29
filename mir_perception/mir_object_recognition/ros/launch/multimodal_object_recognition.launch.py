@@ -101,7 +101,11 @@ def generate_launch_description():
         ],
         parameters=[default_scene_seg_constraints],
         output="screen",
-        prefix=["xterm -e gdb -ex run --args"],
+        # prefix=["xterm -e gdb -ex run --args"],
+        prefix=[
+            "xterm -e gdb -ex 'set logging file gdb_output.txt' -ex 'set logging on' -ex 'run' --args"
+        ],
+        # prefix=["terminator --title=mmor_gdb_debugger -x gdb -ex run --args"],
     )
 
     # transition mmor node to shutdown before SIGINT

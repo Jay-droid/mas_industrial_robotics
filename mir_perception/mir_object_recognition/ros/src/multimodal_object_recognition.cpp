@@ -46,6 +46,77 @@ MultiModalObjectRecognitionROS::recognizedCloudCallback(
   }
 }
 
+  void
+  MultiModalObjectRecognitionROS::recognizedImageCallback(
+      const mir_interfaces::msg::ObjectList &msg)
+  {
+    if (!waiting_for_recognized_image_.load())
+    {
+      return;
+    }
+
+    std::lock_guard<std::mutex> lock(recognized_image_sync_mutex_);
+    recognized_image_list_ = msg;
+
+    if (recognized_image_promise_)
+    {
+      try
+      {
+        recognized_image_promise_->set_value();
+      }
+      catch (const std::future_error &)
+      {
+        // Promise may already be fulfilled by a previous callback.
+      }
+    }
+  }
+
+  bool
+  MultiModalObjectRecognitionROS::requestRemoteRgbRecognition(
+      const sensor_msgs::msg::Image::ConstSharedPtr &image_msg)
+  {
+    if (!image_msg)
+    {
+      RCLCPP_WARN(get_logger(), "No image available for remote RGB recognition");
+      return false;
+    }
+
+    auto promise = std::make_shared<std::promise<void>>();
+    auto future = promise->get_future();
+
+    {
+      std::lock_guard<std::mutex> lock(recognized_image_sync_mutex_);
+      recognized_image_list_.objects.clear();
+      recognized_image_promise_ = promise;
+    }
+
+    waiting_for_recognized_image_.store(true);
+
+    sensor_msgs::msg::Image request = *image_msg;
+    request.header.stamp = this->get_clock()->now();
+    pub_rgb_to_recognizer_->publish(request);
+
+    const auto status = future.wait_for(
+        std::chrono::duration<double>(rgb_recognizer_timeout_sec_));
+
+    waiting_for_recognized_image_.store(false);
+
+    {
+      std::lock_guard<std::mutex> lock(recognized_image_sync_mutex_);
+      recognized_image_promise_.reset();
+    }
+
+    if (status != std::future_status::ready)
+    {
+      RCLCPP_WARN(get_logger(),
+                  "Timeout waiting for remote RGB recognizer response on %s",
+                  rgb_recognizer_output_topic_.c_str());
+      return false;
+    }
+
+    return true;
+}
+
 void
 MultiModalObjectRecognitionROS::preprocessPointCloud(
   const sensor_msgs::msg::PointCloud2::ConstSharedPtr& cloud_msg)
@@ -668,6 +739,15 @@ MultiModalObjectRecognitionROS::execute_goal(
     return;
   }
 
+    if (enable_rgb_recognizer_ && !requestRemoteRgbRecognition(image_msg_))
+    {
+      result->result = false;
+      goal_handle->abort(result);
+      current_goal_handle_.reset();
+      data_lock_.unlock();
+    return;
+  }
+
   // pre-process the pointcloud
   this->preprocessPointCloud(pointcloud_msg_);
   scene_segmentation_ros_->addCloudAccumulation(cloud_);
@@ -728,9 +808,9 @@ MultiModalObjectRecognitionROS::on_configure(const rclcpp_lifecycle::State&)
       std::bind(&MultiModalObjectRecognitionROS::handle_cancel, this, _1),
       std::bind(&MultiModalObjectRecognitionROS::handle_accepted, this, _1));
 
-  // initialize yolo_inference
-  yolo_inference_ = std::make_shared<YoloInference>(yolo_weights_path_,
-                                                    yolo_classes_info_path_);
+  // // initialize yolo_inference
+  // yolo_inference_ = std::make_shared<YoloInference>(yolo_weights_path_,
+  //                                                   yolo_classes_info_path_);
 
   // declare qos profile
   qos_sensor = rclcpp::SensorDataQoS(rclcpp::KeepLast(10));
@@ -772,6 +852,10 @@ MultiModalObjectRecognitionROS::on_configure(const rclcpp_lifecycle::State&)
   pub_debug_rgb_image_ = this->create_publisher<sensor_msgs::msg::Image>(
     "~/recognizer/rgb/debug_image", qos_default);
 
+  // Remote RGB recognizer request publisher
+  pub_rgb_to_recognizer_ = this->create_publisher<sensor_msgs::msg::Image>(
+      rgb_recognizer_input_topic_, qos_sensor);
+
   // Subscribe to cloud and rgb recognition topics
   recognized_callback_group_ =
     this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
@@ -783,6 +867,15 @@ MultiModalObjectRecognitionROS::on_configure(const rclcpp_lifecycle::State&)
       "recognizer/pc/output/object_list",
       qos_parameters,
       std::bind(&MultiModalObjectRecognitionROS::recognizedCloudCallback,
+                this,
+                std::placeholders::_1),
+      recognized_sub_options);
+
+    sub_recognized_image_list_ =
+        this->create_subscription<mir_interfaces::msg::ObjectList>(
+            rgb_recognizer_output_topic_,
+            qos_parameters,
+            std::bind(&MultiModalObjectRecognitionROS::recognizedImageCallback,
                 this,
                 std::placeholders::_1),
       recognized_sub_options);
@@ -836,6 +929,7 @@ MultiModalObjectRecognitionROS::on_activate(const rclcpp_lifecycle::State&)
   pub_workspace_height_->on_activate();
   pub_debug_cloud_plane_->on_activate();
   pub_debug_rgb_image_->on_activate();
+  pub_rgb_to_recognizer_->on_activate();
   pub_cloud_to_recognizer_->on_activate();
   pub_object_list_->on_activate();
   pub_pc_object_pose_array_->on_activate();
@@ -855,6 +949,7 @@ MultiModalObjectRecognitionROS::on_deactivate(const rclcpp_lifecycle::State&)
   pub_workspace_height_->on_deactivate();
   pub_debug_cloud_plane_->on_deactivate();
   pub_debug_rgb_image_->on_deactivate();
+  pub_rgb_to_recognizer_->on_deactivate();
   pub_cloud_to_recognizer_->on_deactivate();
   pub_object_list_->on_deactivate();
   pub_pc_object_pose_array_->on_deactivate();
@@ -885,12 +980,14 @@ MultiModalObjectRecognitionROS::on_cleanup(const rclcpp_lifecycle::State&)
   pub_workspace_height_.reset();
   pub_debug_cloud_plane_.reset();
   pub_debug_rgb_image_.reset();
+  pub_rgb_to_recognizer_.reset();
   pub_cloud_to_recognizer_.reset();
   pub_object_list_.reset();
   pub_pc_object_pose_array_.reset();
   pub_rgb_object_pose_array_.reset();
 
   sub_recognized_cloud_list_.reset();
+  sub_recognized_image_list_.reset();
 
   bounding_box_visualizer_pc_.reset();
   cluster_visualizer_rgb_.reset();
@@ -924,12 +1021,14 @@ MultiModalObjectRecognitionROS::on_shutdown(
   pub_workspace_height_.reset();
   pub_debug_cloud_plane_.reset();
   pub_debug_rgb_image_.reset();
+  pub_rgb_to_recognizer_.reset();
   pub_cloud_to_recognizer_.reset();
   pub_object_list_.reset();
   pub_pc_object_pose_array_.reset();
   pub_rgb_object_pose_array_.reset();
 
   sub_recognized_cloud_list_.reset();
+  sub_recognized_image_list_.reset();
 
   bounding_box_visualizer_pc_.reset();
   cluster_visualizer_rgb_.reset();

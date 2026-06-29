@@ -41,6 +41,25 @@ namespace perception_namespace
     this->declare_parameter("yolo_weights", "", yolo_weights_path_descriptor);
     this->get_parameter<std::string>("yolo_weights", yolo_weights_path_);
 
+    // remote rgb recognizer topics
+    rcl_interfaces::msg::ParameterDescriptor rgb_recognizer_input_topic_descriptor;
+    rgb_recognizer_input_topic_descriptor.description = "Input image topic for remote RGB recognizer";
+    rgb_recognizer_input_topic_descriptor.type = rcl_interfaces::msg::ParameterType::PARAMETER_STRING;
+    this->declare_parameter("rgb_recognizer_input_topic", "/LegoSegmentation/input_image", rgb_recognizer_input_topic_descriptor);
+    this->get_parameter<std::string>("rgb_recognizer_input_topic", rgb_recognizer_input_topic_);
+
+    rcl_interfaces::msg::ParameterDescriptor rgb_recognizer_output_topic_descriptor;
+    rgb_recognizer_output_topic_descriptor.description = "Output object list topic from remote RGB recognizer";
+    rgb_recognizer_output_topic_descriptor.type = rcl_interfaces::msg::ParameterType::PARAMETER_STRING;
+    this->declare_parameter("rgb_recognizer_output_topic", "/LegoSegmentation/output_object_list", rgb_recognizer_output_topic_descriptor);
+    this->get_parameter<std::string>("rgb_recognizer_output_topic", rgb_recognizer_output_topic_);
+
+    rcl_interfaces::msg::ParameterDescriptor rgb_recognizer_timeout_sec_descriptor;
+    rgb_recognizer_timeout_sec_descriptor.description = "Timeout in seconds while waiting for remote RGB recognizer result";
+    rgb_recognizer_timeout_sec_descriptor.type = rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
+    this->declare_parameter("rgb_recognizer_timeout_sec", 8.0, rgb_recognizer_timeout_sec_descriptor);
+    this->get_parameter("rgb_recognizer_timeout_sec", rgb_recognizer_timeout_sec_);
+
     rcl_interfaces::msg::ParameterDescriptor voxel_leaf_size_descriptor;
     voxel_leaf_size_descriptor.description = "The size of a leaf (on x,y,z) used for downsampling.";
     rcl_interfaces::msg::FloatingPointRange voxel_leaf_size_range;
@@ -415,6 +434,9 @@ namespace perception_namespace
     this->get_parameter("objects_info", objects_info_path_);
     this->get_parameter("yolo_classes_info", yolo_classes_info_path_);
     this->get_parameter("yolo_weights", yolo_weights_path_);
+    this->get_parameter("rgb_recognizer_input_topic", rgb_recognizer_input_topic_);
+    this->get_parameter("rgb_recognizer_output_topic", rgb_recognizer_output_topic_);
+    this->get_parameter("rgb_recognizer_timeout_sec", rgb_recognizer_timeout_sec_);
     this->get_parameter("voxel_leaf_size", voxel_leaf_size_);
     this->get_parameter("voxel_filter_field_name", voxel_filter_field_name_);
     this->get_parameter("voxel_filter_limit_min", voxel_filter_limit_min_);
@@ -525,6 +547,18 @@ namespace perception_namespace
       if (param.get_name() == "target_frame_id")
       {
         this->target_frame_id_ = param.get_value<std::string>();
+      }
+      if (param.get_name() == "rgb_recognizer_input_topic")
+      {
+        this->rgb_recognizer_input_topic_ = param.get_value<std::string>();
+      }
+      if (param.get_name() == "rgb_recognizer_output_topic")
+      {
+        this->rgb_recognizer_output_topic_ = param.get_value<std::string>();
+      }
+      if (param.get_name() == "rgb_recognizer_timeout_sec")
+      {
+        this->rgb_recognizer_timeout_sec_ = param.get_value<double>();
       }
       if (param.get_name() == "voxel_leaf_size")
       {

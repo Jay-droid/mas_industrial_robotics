@@ -12,11 +12,14 @@
 
 #include <Eigen/Dense>
 #include <chrono>
+#include <future>
 #include <filesystem>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
+#include <atomic>
 #include <utility>
 #include <vector>
 #include <yaml-cpp/yaml.h>
@@ -181,6 +184,12 @@ private:
   std::shared_ptr<rclcpp::Subscription<mir_interfaces::msg::ObjectList>>
     sub_recognized_cloud_list_;
 
+    // Publisher/subscriber for remote RGB recognizer
+    std::shared_ptr<rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::Image>>
+        pub_rgb_to_recognizer_;
+    std::shared_ptr<rclcpp::Subscription<mir_interfaces::msg::ObjectList>>
+        sub_recognized_image_list_;
+
   // Publisher object lsit
   std::shared_ptr<
     rclcpp_lifecycle::LifecyclePublisher<mir_interfaces::msg::ObjectList>>
@@ -215,7 +224,14 @@ private:
                            const sensor_msgs::msg::PointCloud2::ConstSharedPtr& cloud_msg);
 
   // Recognize Clouds callback
-  void recognizedCloudCallback(const mir_interfaces::msg::ObjectList& msg);
+    void recognizedCloudCallback(const mir_interfaces::msg::ObjectList& msg);
+
+    // Recognize RGB callback
+    void recognizedImageCallback(const mir_interfaces::msg::ObjectList &msg);
+
+    // Request one remote RGB recognition and wait for exactly one response
+    bool requestRemoteRgbRecognition(
+        const sensor_msgs::msg::Image::ConstSharedPtr &image_msg);
 
   /** \brief Transform pointcloud to the given target frame id ("base_link" by
    * default) \param[in] PointCloud2 input
@@ -280,6 +296,11 @@ protected:
   // yolo inference file paths
   std::string yolo_classes_info_path_;
   std::string yolo_weights_path_;
+
+  // remote rgb recognizer topics and timeout
+  std::string rgb_recognizer_input_topic_;
+  std::string rgb_recognizer_output_topic_;
+  double rgb_recognizer_timeout_sec_;
 
   // unique lock for data (pointcloud and image)
   std::mutex data_mutex_;
@@ -350,6 +371,11 @@ protected:
   // Recognized image list
   mir_interfaces::msg::ObjectList recognized_cloud_list_;
   mir_interfaces::msg::ObjectList recognized_image_list_;
+
+  // Synchronization for action-scoped remote RGB response
+  std::mutex recognized_image_sync_mutex_;
+  std::shared_ptr<std::promise<void>> recognized_image_promise_;
+  std::atomic<bool> waiting_for_recognized_image_{false};
 
   // Enable recognizer
   bool enable_rgb_recognizer_;
