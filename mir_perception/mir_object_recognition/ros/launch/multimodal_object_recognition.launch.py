@@ -12,7 +12,7 @@ from launch.actions import (
     LogInfo,
     DeclareLaunchArgument,
 )
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import ComposableNodeContainer
 from launch_ros.descriptions import ComposableNode
 from launch_ros.events.lifecycle import ChangeState
@@ -72,10 +72,25 @@ def generate_launch_description():
         description="Absolute path to the target YOLO .onnx network model weights.",
     )
 
+    use_gdb_arg = DeclareLaunchArgument(
+        "use_gdb",
+        default_value="false",
+        description="Launch the component container under gdb in an xterm window.",
+    )
+
     # 3. Create active Launch Configurations to bind evaluation run-time context
     objects_info_config = LaunchConfiguration("objects_info")
     yolo_classes_info_config = LaunchConfiguration("yolo_classes_info")
     yolo_weights_config = LaunchConfiguration("yolo_weights")
+
+    # Only prefix with gdb when use_gdb:=true, otherwise run normally.
+    gdb_prefix = PythonExpression(
+        [
+            '"xterm -e gdb -ex run --args" if "',
+            LaunchConfiguration("use_gdb"),
+            '".lower() == "true" else ""',
+        ]
+    )
 
     # 4. Construct container with evaluation variables bound to parameters
     container = ComposableNodeContainer(
@@ -101,11 +116,7 @@ def generate_launch_description():
         ],
         parameters=[default_scene_seg_constraints],
         output="screen",
-        # prefix=["xterm -e gdb -ex run --args"],
-        prefix=[
-            "xterm -e gdb -ex 'set logging file gdb_output.txt' -ex 'set logging on' -ex 'run' --args"
-        ],
-        # prefix=["terminator --title=mmor_gdb_debugger -x gdb -ex run --args"],
+        prefix=[gdb_prefix],
     )
 
     # transition mmor node to shutdown before SIGINT
@@ -127,6 +138,7 @@ def generate_launch_description():
     ld.add_action(objects_info_arg)
     ld.add_action(yolo_classes_info_arg)
     ld.add_action(yolo_weights_arg)
+    ld.add_action(use_gdb_arg)
     ld.add_action(shutdown_event)
     ld.add_action(container)
 
