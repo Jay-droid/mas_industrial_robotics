@@ -9,6 +9,8 @@
 
 #include "mir_object_recognition/multimodal_object_recognition.hpp"
 
+#include <algorithm>
+
 namespace perception_namespace {
 MultiModalObjectRecognitionROS::MultiModalObjectRecognitionROS(
   const rclcpp::NodeOptions& options)
@@ -81,40 +83,68 @@ MultiModalObjectRecognitionROS::recognizedCloudCallback(
       return false;
     }
 
-    auto promise = std::make_shared<std::promise<void>>();
-    auto future = promise->get_future();
+    // The request image is a large best-effort sample (~900 kB for 640x480
+    // rgb8) and the first publish after startup is regularly dropped by the
+    // transport, so retry rather than failing the goal outright. Republishing
+    // the same image is harmless: a late response from an earlier attempt
+    // describes the same scene. Non-final attempts use a short wait because a
+    // dropped request never produces a response at all.
+    constexpr int kMaxAttempts = 3;
+    constexpr double kRetryWaitSec = 2.0;
 
+    for (int attempt = 1; attempt <= kMaxAttempts; ++attempt)
     {
-      std::lock_guard<std::mutex> lock(recognized_image_sync_mutex_);
-      recognized_image_list_.objects.clear();
-      recognized_image_promise_ = promise;
-    }
+      auto promise = std::make_shared<std::promise<void>>();
+      auto future = promise->get_future();
 
-    waiting_for_recognized_image_.store(true);
+      {
+        std::lock_guard<std::mutex> lock(recognized_image_sync_mutex_);
+        recognized_image_list_.objects.clear();
+        recognized_image_promise_ = promise;
+      }
 
-    sensor_msgs::msg::Image request = *image_msg;
-    request.header.stamp = this->get_clock()->now();
-    pub_rgb_to_recognizer_->publish(request);
+      waiting_for_recognized_image_.store(true);
 
-    const auto status = future.wait_for(
-        std::chrono::duration<double>(rgb_recognizer_timeout_sec_));
+      sensor_msgs::msg::Image request = *image_msg;
+      request.header.stamp = this->get_clock()->now();
+      pub_rgb_to_recognizer_->publish(request);
 
-    waiting_for_recognized_image_.store(false);
+      const double wait_sec = (attempt < kMaxAttempts)
+                                ? std::min(kRetryWaitSec,
+                                           rgb_recognizer_timeout_sec_)
+                                : rgb_recognizer_timeout_sec_;
+      const auto status =
+        future.wait_for(std::chrono::duration<double>(wait_sec));
 
-    {
-      std::lock_guard<std::mutex> lock(recognized_image_sync_mutex_);
-      recognized_image_promise_.reset();
-    }
+      waiting_for_recognized_image_.store(false);
 
-    if (status != std::future_status::ready)
-    {
+      {
+        std::lock_guard<std::mutex> lock(recognized_image_sync_mutex_);
+        recognized_image_promise_.reset();
+      }
+
+      if (status == std::future_status::ready)
+      {
+        if (attempt > 1)
+        {
+          RCLCPP_INFO(get_logger(),
+                      "Remote RGB recognizer responded on attempt %d/%d",
+                      attempt,
+                      kMaxAttempts);
+        }
+        return true;
+      }
+
       RCLCPP_WARN(get_logger(),
-                  "Timeout waiting for remote RGB recognizer response on %s",
-                  rgb_recognizer_output_topic_.c_str());
-      return false;
+                  "No remote RGB recognizer response on %s after %.1fs "
+                  "(attempt %d/%d)",
+                  rgb_recognizer_output_topic_.c_str(),
+                  wait_sec,
+                  attempt,
+                  kMaxAttempts);
     }
 
-    return true;
+    return false;
 }
 
 void
