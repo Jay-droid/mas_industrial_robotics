@@ -11,6 +11,8 @@
 
 #include <algorithm>
 
+#include "rmw/qos_profiles.h"
+
 namespace perception_namespace {
 MultiModalObjectRecognitionROS::MultiModalObjectRecognitionROS(
   const rclcpp::NodeOptions& options)
@@ -942,6 +944,39 @@ MultiModalObjectRecognitionROS::on_configure(const rclcpp_lifecycle::State&)
     CallbackReturn::SUCCESS;
 }
 
+rmw_qos_profile_t
+MultiModalObjectRecognitionROS::qosProfileFromReliability(
+  const std::string& reliability) const
+{
+  rmw_qos_profile_t qos = rmw_qos_profile_sensor_data;
+  if (reliability == "reliable") {
+    qos.reliability = RMW_QOS_POLICY_RELIABILITY_RELIABLE;
+  } else {
+    qos.reliability = RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT;
+  }
+  return qos;
+}
+
+void
+MultiModalObjectRecognitionROS::subscribeInputTopics()
+{
+  image_sub_.unsubscribe();
+  cloud_sub_.unsubscribe();
+  image_sub_.subscribe(
+    this,
+    "input_image_topic",
+    qosProfileFromReliability(input_image_qos_reliability_));
+  cloud_sub_.subscribe(
+    this,
+    "input_cloud_topic",
+    qosProfileFromReliability(input_cloud_qos_reliability_));
+  RCLCPP_INFO(
+    get_logger(),
+    "Subscribed to input topics: image reliability=%s, cloud reliability=%s",
+    input_image_qos_reliability_.c_str(),
+    input_cloud_qos_reliability_.c_str());
+}
+
 rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
 MultiModalObjectRecognitionROS::on_activate(const rclcpp_lifecycle::State&)
 {
@@ -949,8 +984,7 @@ MultiModalObjectRecognitionROS::on_activate(const rclcpp_lifecycle::State&)
 
   RCUTILS_LOG_INFO_NAMED(get_name(), "on_activate() is called.");
 
-  image_sub_.subscribe(this, "input_image_topic");
-  cloud_sub_.subscribe(this, "input_cloud_topic");
+  subscribeInputTopics();
 
   // register msg sync callback
   msg_sync_->registerCallback(

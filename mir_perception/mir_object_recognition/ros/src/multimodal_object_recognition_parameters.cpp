@@ -7,6 +7,8 @@
 
 #include "mir_object_recognition/multimodal_object_recognition.hpp"
 
+#include "lifecycle_msgs/msg/state.hpp"
+
 namespace perception_namespace
 {
   void MultiModalObjectRecognitionROS::declare_all_parameters()
@@ -425,6 +427,18 @@ namespace perception_namespace
     octree_resolution_range.set__from_value(0.0).set__to_value(2.0);
     octree_resolution_descriptor.floating_point_range = {octree_resolution_range};
     this->declare_parameter("octree_resolution", 0.0025, octree_resolution_descriptor);
+
+    rcl_interfaces::msg::ParameterDescriptor input_image_qos_reliability_descriptor;
+    input_image_qos_reliability_descriptor.description =
+      "Reliability of input_image_topic: 'reliable' or 'best_effort'";
+    this->declare_parameter(
+      "input_image_qos_reliability", "reliable", input_image_qos_reliability_descriptor);
+
+    rcl_interfaces::msg::ParameterDescriptor input_cloud_qos_reliability_descriptor;
+    input_cloud_qos_reliability_descriptor.description =
+      "Reliability of input_cloud_topic: 'reliable' or 'best_effort'";
+    this->declare_parameter(
+      "input_cloud_qos_reliability", "best_effort", input_cloud_qos_reliability_descriptor);
   }
 
   void MultiModalObjectRecognitionROS::get_all_parameters()
@@ -492,6 +506,8 @@ namespace perception_namespace
     this->get_parameter("roi_base_link_to_laser_distance", roi_base_link_to_laser_distance_);
     this->get_parameter("roi_max_object_pose_x_to_base_link", roi_max_object_pose_x_to_base_link_);
     this->get_parameter("roi_min_bbox_z", roi_min_bbox_z_);
+    this->get_parameter("input_image_qos_reliability", input_image_qos_reliability_);
+    this->get_parameter("input_cloud_qos_reliability", input_cloud_qos_reliability_);
 
     scene_segmentation_ros_->setVoxelGridParams(voxel_leaf_size_, voxel_filter_field_name_,
                                                 voxel_filter_limit_min_, voxel_filter_limit_max_);
@@ -536,6 +552,7 @@ namespace perception_namespace
     rcl_interfaces::msg::SetParametersResult result;
     result.successful = true;
     result.reason = "success";
+    bool qos_changed = false;
 
     for (const auto &param : parameters)
     {
@@ -780,6 +797,34 @@ namespace perception_namespace
       {
         this->roi_min_bbox_z_ = param.get_value<double>();
       }
+      if (param.get_name() == "input_image_qos_reliability" ||
+          param.get_name() == "input_cloud_qos_reliability")
+      {
+        const auto value = param.get_value<std::string>();
+        if (value != "reliable" && value != "best_effort")
+        {
+          result.successful = false;
+          result.reason =
+            "QoS reliability must be 'reliable' or 'best_effort'";
+          return result;
+        }
+        if (param.get_name() == "input_image_qos_reliability")
+        {
+          this->input_image_qos_reliability_ = value;
+        }
+        else
+        {
+          this->input_cloud_qos_reliability_ = value;
+        }
+        qos_changed = true;
+      }
+    }
+
+    if (qos_changed &&
+        this->get_current_state().id() ==
+          lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE)
+    {
+      this->subscribeInputTopics();
     }
 
     scene_segmentation_ros_->setVoxelGridParams(voxel_leaf_size_, voxel_filter_field_name_,

@@ -215,6 +215,13 @@ private:
   /** @brief method to load all parameters into node variables */
   void get_all_parameters();
 
+  /** \brief Build a sensor-data QoS profile with the given reliability. */
+  rmw_qos_profile_t qosProfileFromReliability(
+    const std::string& reliability) const;
+
+  /** \brief (Re)subscribe to the camera image and cloud with current QoS. */
+  void subscribeInputTopics();
+
   /**
    * \brief Callback for the synchronized image and point cloud messages
    * \param[in] image_msg
@@ -391,6 +398,10 @@ protected:
   double roi_base_link_to_laser_distance_;
   double roi_max_object_pose_x_to_base_link_;
   double roi_min_bbox_z_;
+
+  // Subscriber reliability: "reliable" or "best_effort"
+  std::string input_image_qos_reliability_;
+  std::string input_cloud_qos_reliability_;
 
   // QoS profiles
   rclcpp::SensorDataQoS qos_sensor;

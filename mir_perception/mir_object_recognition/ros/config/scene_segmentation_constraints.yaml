@@ -56,3 +56,5 @@
     roi_base_link_to_laser_distance: 0.350
     roi_max_object_pose_x_to_base_link: 0.700
     roi_min_bbox_z: 0.03
+    input_image_qos_reliability: 'reliable'
+    input_cloud_qos_reliability: 'best_effort'
