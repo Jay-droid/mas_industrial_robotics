@@ -1,5 +1,5 @@
 # mas_industrial_robotics
-
+this package is being used by the 
 ## Status
 
 ### Working modules
@@ -44,16 +44,7 @@
   colcon build --symlink-install
   ```
 
-### Usage
 
-
-- View the youbot in rviz
-  ```bash
-  ros2 launch mir_bringup view_youbot.launch.py
-  ```
-
-- Launch the bringup
-```bash
 ros2 launch mir_bringup robot.launch.py
 ```
 
