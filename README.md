@@ -45,6 +45,3 @@ this package is being used by the
   ```
 
 
-ros2 launch mir_bringup robot.launch.py
-```
-
