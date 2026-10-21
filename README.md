@@ -27,7 +27,7 @@
   ```bash
   cd ~/mir/src
 
-  git clone -b rolling https://github.com/mas_industrial_robotics.git
+  git@github.com:Jay-droid/mas_industrial_robotics.git
   ```
 
 - Clone the dependency packages
